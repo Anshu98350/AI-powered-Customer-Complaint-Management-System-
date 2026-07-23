@@ -9,7 +9,22 @@ from sqlalchemy.orm import Session
 
 from db import init_db, get_db, Complaint
 from langgraph_workflow import complaint_app
-from extraction_agent import chat_with_complaint_llm
+from extraction_agent import chat_with_complaint_llm, edit_complaint_with_llm
+
+class EditComplaintRequest(BaseModel):
+    existing_data: dict
+    edit_instruction: str
+    api_key: Optional[str] = None
+
+@app.post("/api/edit-complaint")
+async def edit_complaint(payload: EditComplaintRequest):
+    updated_data = edit_complaint_with_llm(
+        existing_data=payload.existing_data,
+        edit_instruction=payload.edit_instruction,
+        api_key=payload.api_key
+    )
+    return {"status": "success", "updated": updated_data}
+
 
 import PyPDF2
 import docx
@@ -56,6 +71,8 @@ class SaveComplaintRequest(BaseModel):
     detailed_description: Optional[str] = None
     initial_severity: Optional[str] = None
     priority: Optional[str] = None
+    severity_reasoning: Optional[str] = None
+    recommended_actions: Optional[str] = None
     status: Optional[str] = "Pending Triage"
 
 @app.get("/")
@@ -150,6 +167,8 @@ def save_complaint(complaint_data: SaveComplaintRequest, db: Session = Depends(g
         detailed_description=complaint_data.detailed_description,
         initial_severity=complaint_data.initial_severity,
         priority=complaint_data.priority,
+        severity_reasoning=complaint_data.severity_reasoning,
+        recommended_actions=complaint_data.recommended_actions,
         status=complaint_data.status or "Pending Triage",
         extracted_metadata_json=json.dumps(complaint_data.dict())
     )

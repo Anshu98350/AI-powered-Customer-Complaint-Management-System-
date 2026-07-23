@@ -19,15 +19,19 @@ def parse_complaint_fallback(raw_text: str) -> dict:
     # Determine severity based on pharma risk keywords
     severity = "Minor"
     priority = "Low"
+    severity_reasoning = "Standard minor packaging/documentation query with low impact on product safety, potency, or cGMP compliance."
+    recommended_actions = "1. Document complaint in QMS database.\n2. Request photo/batch evidence from customer.\n3. Issue standard acknowledgment response within 48 hours."
+
     if any(kw in text_lower for kw in ["contamination", "impurity", "adverse event", "toxic", "critical", "sterility", "sub potency", "death", "recall"]):
         severity = "Critical"
         priority = "Urgent"
+        severity_reasoning = "High risk of adverse patient events, toxic contamination, or severe cGMP Out-Of-Specification (OOS) violation requiring mandatory regulatory reporting."
+        recommended_actions = "1. Immediately quarantine remaining batch stock & reserve samples.\n2. Convene Quality Review Board (QRB) & initiate Root Cause Analysis (5-Why / Fishbone).\n3. Prepare Field Alert Report (FAR) / FDA Form 3331a within 3 working days."
     elif any(kw in text_lower for kw in ["discoloration", "out of specification", "oos", "labeling", "leakage", "broken seal", "foreign particle"]):
         severity = "Major"
         priority = "High"
-    elif any(kw in text_lower for kw in ["damaged box", "minor tear", "shipping delay"]):
-        severity = "Minor"
-        priority = "Medium"
+        severity_reasoning = "Potential impact on physical batch uniformity or analytical specifications. Requires immediate cGMP CAPA investigation."
+        recommended_actions = "1. Quarantine affected lot and inspect retains.\n2. Perform analytical re-testing & review batch manufacturing records (BMR).\n3. Send technical investigation report to customer within 7 business days."
 
     # Complaint Type classifier
     complaint_type = "Packaging / Labeling Defect"
@@ -51,7 +55,9 @@ def parse_complaint_fallback(raw_text: str) -> dict:
         "complaint_date": date_match.group(1).strip() if date_match else "2026-07-20",
         "detailed_description": raw_text.strip(),
         "initial_severity": severity,
-        "priority": priority
+        "priority": priority,
+        "severity_reasoning": severity_reasoning,
+        "recommended_actions": recommended_actions
     }
 
 def extract_complaint_with_llm(raw_text: str, api_key: str = None) -> dict:
@@ -89,7 +95,9 @@ Return a valid JSON object with the following fields:
   "complaint_date": "YYYY-MM-DD",
   "detailed_description": "Comprehensive summary of the defect/complaint",
   "initial_severity": "One of: Minor, Major, Critical",
-  "priority": "One of: Low, Medium, High, Urgent"
+  "priority": "One of: Low, Medium, High, Urgent",
+  "severity_reasoning": "Reasoning explaining why this severity level was assigned based on potential product safety or cGMP impact",
+  "recommended_actions": "List of recommended next cGMP / QA actions (e.g. Quarantine batch, initiate CAPA, notify customer)"
 }
 Output ONLY raw JSON. No markdown code blocks, no intro, no chatter.
 """
@@ -109,23 +117,92 @@ Output ONLY raw JSON. No markdown code blocks, no intro, no chatter.
         print(f"[LLM Extraction Fallback Triggered due to error]: {e}")
         return parse_complaint_fallback(raw_text)
 
+def edit_complaint_with_llm(existing_data: dict, edit_instruction: str, api_key: str = None) -> dict:
+    groq_api_key = api_key or os.getenv("GROQ_API_KEY")
+    
+    if not groq_api_key or groq_api_key.strip() == "" or groq_api_key == "YOUR_GROQ_API_KEY":
+        updated = dict(existing_data)
+        instruction_lower = edit_instruction.lower()
+        
+        batch_match = re.search(r'(?:batch|lot|batch/lot|number|#)\s*(?:to|is|=)?\s*([A-Z0-9\-]+)', edit_instruction, re.IGNORECASE)
+        if batch_match:
+            updated["batch_lot_number"] = batch_match.group(1).strip()
+            
+        qty_match = re.search(r'(?:quantity|qty|amount)\s*(?:to|is|=)?\s*([0-9]+\s*(?:kg|g|vials|tablets|packs|units|boxes)?)', edit_instruction, re.IGNORECASE)
+        if qty_match:
+            updated["quantity_affected"] = qty_match.group(1).strip()
+
+        if "critical" in instruction_lower:
+            updated["initial_severity"] = "Critical"
+            updated["priority"] = "Urgent"
+            updated["severity_reasoning"] = "Updated to Critical based on user request/new severe defect findings."
+            updated["recommended_actions"] = "1. Immediate quarantine.\n2. QRB meeting & FAR report."
+        elif "major" in instruction_lower:
+            updated["initial_severity"] = "Major"
+            updated["priority"] = "High"
+            updated["severity_reasoning"] = "Updated to Major based on user edit instruction."
+            updated["recommended_actions"] = "1. Quarantine batch.\n2. Perform analytical re-test."
+        elif "minor" in instruction_lower:
+            updated["initial_severity"] = "Minor"
+            updated["priority"] = "Low"
+            updated["severity_reasoning"] = "Downgraded to Minor severity."
+            updated["recommended_actions"] = "1. Standard documentation & customer response."
+
+        customer_match = re.search(r'(?:customer|client)\s*(?:to|is|=)?\s*([^\n,.]+)', edit_instruction, re.IGNORECASE)
+        if customer_match:
+            updated["customer_name"] = customer_match.group(1).strip()
+
+        product_match = re.search(r'(?:product)\s*(?:to|is|=)?\s*([^\n,.]+)', edit_instruction, re.IGNORECASE)
+        if product_match:
+            updated["product_name"] = product_match.group(1).strip()
+
+        return updated
+
+    try:
+        from langchain_groq import ChatGroq
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        llm = ChatGroq(model_name="gemma2-9b-it", groq_api_key=groq_api_key, temperature=0.1)
+        system_prompt = f"""
+You are an AI Assistant for a Pharmaceutical Quality Management System (QMS).
+Your task is to edit an existing customer complaint object based on natural language edit instructions.
+You MUST preserve all existing fields that are NOT explicitly modified by the instruction.
+Re-evaluate initial_severity, priority, complaint_type, severity_reasoning, and recommended_actions if the edit instruction changes defect details or severity risk.
+
+Current Complaint Object JSON:
+{json.dumps(existing_data, indent=2)}
+
+Output ONLY the updated JSON object with identical key schema. No explanation, no code blocks.
+"""
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"Apply edit instruction: {edit_instruction}")
+        ]
+        res = llm.invoke(messages)
+        content = res.content.strip()
+        content = re.sub(r'^```json\s*', '', content)
+        content = re.sub(r'\s*```$', '', content)
+        return json.loads(content)
+    except Exception as e:
+        print(f"[LLM Edit Error]: {e}")
+        return existing_data
+
 def chat_with_complaint_llm(complaint_context: dict, user_question: str, api_key: str = None) -> str:
     groq_api_key = api_key or os.getenv("GROQ_API_KEY")
     context_str = json.dumps(complaint_context, indent=2)
 
     if not groq_api_key or groq_api_key.strip() == "" or groq_api_key == "YOUR_GROQ_API_KEY":
-        # Fallback intelligent bot
         q_lower = user_question.lower()
         if "batch" in q_lower or "lot" in q_lower:
             return f"The batch/lot number identified in this complaint is **{complaint_context.get('batch_lot_number', 'N/A')}**."
         elif "severity" in q_lower or "priority" in q_lower or "risk" in q_lower:
-            return f"This complaint is categorized as **{complaint_context.get('initial_severity', 'N/A')}** severity with a **{complaint_context.get('priority', 'N/A')}** priority level due to safety and cGMP compliance evaluation."
+            return f"This complaint is categorized as **{complaint_context.get('initial_severity', 'N/A')}** severity with a **{complaint_context.get('priority', 'N/A')}** priority level due to cGMP risk evaluation."
         elif "expiry" in q_lower or "mfg" in q_lower or "date" in q_lower:
             return f"Manufacturing Date: **{complaint_context.get('manufacturing_date', 'N/A')}**, Expiry Date: **{complaint_context.get('expiry_date', 'N/A')}**, Complaint Date: **{complaint_context.get('complaint_date', 'N/A')}**."
         elif "customer" in q_lower or "who" in q_lower:
             return f"The complaint was logged by customer **{complaint_context.get('customer_name', 'N/A')}** via **{complaint_context.get('complaint_source', 'N/A')}**."
         else:
-            return f"Based on the extracted complaint details for **{complaint_context.get('product_name', 'the product')}** (Batch: {complaint_context.get('batch_lot_number', 'N/A')}):\n\nSummary: {complaint_context.get('detailed_description', 'No details provided.')}\n\nRequired Action: Perform immediate QA containment, sample quarantine, and initiate CAPA investigation under cGMP SOP-QMS-402."
+            return f"Based on the complaint details for **{complaint_context.get('product_name', 'the product')}** (Batch: {complaint_context.get('batch_lot_number', 'N/A')}):\n\nSummary: {complaint_context.get('detailed_description', 'No details provided.')}\n\nRecommended QA Next Actions:\n1. Place batch {complaint_context.get('batch_lot_number', 'N/A')} on immediate retention sample quarantine.\n2. Initiate CAPA investigation under cGMP SOP-QMS-402.\n3. Issue preliminary notification to customer {complaint_context.get('customer_name', 'N/A')} within 24 hours."
 
     try:
         from langchain_groq import ChatGroq
@@ -133,10 +210,10 @@ def chat_with_complaint_llm(complaint_context: dict, user_question: str, api_key
 
         llm = ChatGroq(model_name="gemma2-9b-it", groq_api_key=groq_api_key, temperature=0.3)
         system_prompt = f"""
-You are an AI Quality Intake Assistant for a Pharmaceutical QMS. 
-You are discussing a specific logged customer complaint with a QA officer.
+You are an AI Quality Intake Assistant & QA Copilot for a Pharmaceutical QMS. 
+You are discussing a specific logged customer complaint with a Quality Assurance officer.
 
-Complaint Data Context:
+Complaint Context:
 {context_str}
 
 Answer the user's question concisely, professionally, and accurately according to cGMP pharmaceutical standards.
@@ -149,4 +226,6 @@ Answer the user's question concisely, professionally, and accurately according t
         return res.content
     except Exception as e:
         print(f"[LLM Chat Error]: {e}")
-        return f"Regarding your question: '{user_question}', here is the recorded detail for batch {complaint_context.get('batch_lot_number', 'N/A')}: {complaint_context.get('detailed_description', 'N/A')}"
+        return f"Regarding your question: '{user_question}', recorded detail for batch {complaint_context.get('batch_lot_number', 'N/A')}: {complaint_context.get('detailed_description', 'N/A')}"
+
+

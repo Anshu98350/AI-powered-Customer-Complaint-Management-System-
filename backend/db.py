@@ -30,6 +30,8 @@ class Complaint(Base):
     detailed_description = Column(Text, nullable=True)
     initial_severity = Column(String(100), nullable=True)  # Minor, Major, Critical
     priority = Column(String(100), nullable=True)          # Low, Medium, High, Urgent
+    severity_reasoning = Column(Text, nullable=True)
+    recommended_actions = Column(Text, nullable=True)
     status = Column(String(100), default="Pending Triage")  # Pending Triage, Under Investigation, Closed
     created_at = Column(DateTime, default=datetime.utcnow)
     extracted_metadata_json = Column(Text, nullable=True)
