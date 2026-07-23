@@ -1,0 +1,32 @@
+URGENT PHARMACEUTICAL QUALITY COMPLAINT
+
+From: Dr. Aris Thorne, QA Director, MetroHealth Global Logistics
+Date: 2026-07-19
+To: Global Quality Assurance & cGMP Compliance Team, Apex Pharma API & FDF Mfg
+
+Subject: Critical Out-of-Specification (OOS) Defect & Discoloration - Metformin HCI 500mg Tablets (Batch #FDF-9082-X)
+
+Dear Quality Team,
+
+We are writing to register an urgent quality complaint regarding our recent shipment of Metformin Hydrochloride 500mg Finished Dosage Form (FDF) Film-Coated Tablets received under Purchase Order #PO-88219.
+
+Incident Details:
+- Customer Name: MetroHealth Global Logistics / St. Jude Regional Hospital Network
+- Product Name: Metformin HCl 500mg Film-Coated Tablets (FDF)
+- Product Strength / Grade: 500 mg USP Grade
+- Batch / Lot Number: Batch #FDF-9082-X
+- Manufacturing Date: 2025-11-10
+- Expiry Date: 2028-11-09
+- Quantity Affected: 25,000 Blister Packs (approx. 250,000 tablets)
+- Complaint Date: 2026-07-19
+
+Defect Description:
+During routine incoming quality inspection at our primary hospital dispensary, our technical staff observed significant mottling and dark brown discoloration on approximately 18% of the inspected tablets. Furthermore, three blister foils showed seal integrity breaches leading to tablet crumbling. Chemical assay preliminary testing revealed an Out-of-Specification (OOS) dissolution rate of only 68% at 45 minutes (USP specification requires >= 80%).
+
+Risk & Impact Assessment:
+This defect directly impacts patient safety and therapeutic efficacy. We have quarantined the entire lot immediately. Please initiate a formal Root Cause Analysis (RCA), sample retrieval, and CAPA under cGMP Guidelines.
+
+Sincerely,
+Dr. Aris Thorne
+Director of Quality Assurance
+MetroHealth Global Logistics
